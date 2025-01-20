@@ -525,4 +525,222 @@ class WC_Stripe_Payment_Gateway_Test extends WP_UnitTestCase {
 			->setMethods( $methods )
 			->getMock();
 	}
+
+	public function test_get_balance_transaction_id_from_charge() {
+		$expected_balance_transaction_id = 'txn_test123';
+		$balance_transaction_object      = (object) [
+			'id' => $expected_balance_transaction_id,
+		];
+
+		$charge_expanded = (object) [
+			'id'                  => 'ch_test123',
+			'balance_transaction' => $balance_transaction_object,
+		];
+		$this->assertEquals( $expected_balance_transaction_id, $this->gateway->get_balance_transaction_id_from_charge( $charge_expanded ) );
+
+		$charge_non_expanded = (object) [
+			'id'                  => 'ch_test123',
+			'balance_transaction' => $expected_balance_transaction_id,
+		];
+		$this->assertEquals( $expected_balance_transaction_id, $this->gateway->get_balance_transaction_id_from_charge( $charge_non_expanded ) );
+
+		/**
+		 * ------------------------------------
+		 * Test invalid cases.
+		 * ------------------------------------
+		 */
+		$charge_no_balance_transaction_id = (object) [
+			'id' => 'ch_test123',
+		];
+		$this->assertEquals( null, $this->gateway->get_balance_transaction_id_from_charge( $charge_no_balance_transaction_id ) );
+
+		$charge_no_balance_transaction = (object) [
+			'id'                  => 'ch_test123',
+			'balance_transaction' => null,
+		];
+		$this->assertEquals( null, $this->gateway->get_balance_transaction_id_from_charge( $charge_no_balance_transaction ) );
+
+		$charge_no_balance_transaction_object = (object) [
+			'id'                  => 'ch_test123',
+			'balance_transaction' => (object) [],
+		];
+		$this->assertEquals( null, $this->gateway->get_balance_transaction_id_from_charge( $charge_no_balance_transaction_object ) );
+
+		$this->assertEquals( null, $this->gateway->get_balance_transaction_id_from_charge( null ) );
+	}
+
+	/**
+	 * Tests for Card brand and last 4 digits are displayed correctly for subscription.
+	 *
+	 * @see WC_Stripe_Subscriptions_Trait::maybe_render_subscription_payment_method()
+	 */
+	public function test_render_subscription_payment_method() {
+		$mock_subscription = WC_Helper_Order::create_order(); // We can use an order as a subscription.
+		$mock_subscription->set_payment_method( 'stripe' );
+
+		$mock_subscription->update_meta_data( '_stripe_source_id', 'src_mock' );
+		$mock_subscription->update_meta_data( '_stripe_customer_id', 'cus_mock' );
+		$mock_subscription->save();
+
+		// This is the key the customer's payment methods are stored under in the transient.
+		$transient_key = WC_Stripe_Customer::PAYMENT_METHODS_TRANSIENT_KEY . 'cardcus_mock';
+
+		$mock_payment_method       = new stdClass();
+		$mock_payment_method->id   = 'src_mock';
+		$mock_payment_method->type = 'card';
+		$mock_payment_method->card = new stdClass();
+
+		// VISA ending in 4242
+		$mock_payment_method->card->brand = 'visa';
+		$mock_payment_method->card->last4 = '4242';
+
+		set_transient( $transient_key, [ $mock_payment_method ], DAY_IN_SECONDS );
+		$this->assertEquals( 'Via Visa card ending in 4242', $this->gateway->maybe_render_subscription_payment_method( 'N/A', $mock_subscription ) );
+
+		// MasterCard ending in 1234
+		$mock_payment_method->card->brand = 'mastercard';
+		$mock_payment_method->card->last4 = '1234';
+
+		set_transient( $transient_key, [ $mock_payment_method ], DAY_IN_SECONDS );
+		$this->assertEquals( 'Via MasterCard card ending in 1234', $this->gateway->maybe_render_subscription_payment_method( 'N/A', $mock_subscription ) );
+
+		// American Express ending in 5678
+		$mock_payment_method->card->brand = 'amex';
+		$mock_payment_method->card->last4 = '5678';
+
+		set_transient( $transient_key, [ $mock_payment_method ], DAY_IN_SECONDS );
+		$this->assertEquals( 'Via Amex card ending in 5678', $this->gateway->maybe_render_subscription_payment_method( 'N/A', $mock_subscription ) );
+
+		// JCB ending in 9012'
+		$mock_payment_method->card->brand = 'jcb';
+		$mock_payment_method->card->last4 = '9012';
+
+		set_transient( $transient_key, [ $mock_payment_method ], DAY_IN_SECONDS );
+
+		// Unknown card type
+		$mock_payment_method->card->brand = 'dummy';
+		$mock_payment_method->card->last4 = '0000';
+
+		set_transient( $transient_key, [ $mock_payment_method ], DAY_IN_SECONDS );
+		// Card brands that WC core doesn't recognize will be displayed as ucwords.
+		$this->assertEquals( 'Via Dummy card ending in 0000', $this->gateway->maybe_render_subscription_payment_method( 'N/A', $mock_subscription ) );
+	}
+
+	/**
+	 * Tests for `lock_order_payment` method.
+	 */
+	public function test_lock_order_payment() {
+		$order_1 = WC_Helper_Order::create_order();
+		$locked  = $this->gateway->lock_order_payment( $order_1 );
+
+		$this->assertFalse( $locked );
+		$current_lock = $order_1->get_meta( '_stripe_lock_payment' );
+		$this->assertEqualsWithDelta( (int) $current_lock, ( time() + 5 * MINUTE_IN_SECONDS ), 3 );
+
+		$locked = $this->gateway->lock_order_payment( $order_1 );
+		$this->assertTrue( $locked );
+
+		// lock with an intent ID.
+		$order_2   = WC_Helper_Order::create_order();
+		$intent_id = 'pi_123intent';
+
+		$locked       = $this->gateway->lock_order_payment( $order_2, $intent_id );
+		$current_lock = $order_2->get_meta( '_stripe_lock_payment' );
+
+		$this->assertFalse( $locked );
+		$locked = $this->gateway->lock_order_payment( $order_2, $intent_id );
+		$this->assertTrue( $locked );
+		$locked = $this->gateway->lock_order_payment( $order_2 ); // test that you don't need to pass the intent ID to check lock.
+		$this->assertTrue( $locked );
+
+		// test expired locks.
+		$order_3 = WC_Helper_Order::create_order();
+		$order_3->update_meta_data( '_stripe_lock_payment', time() - 1 );
+		$order_3->save_meta_data();
+
+		$locked       = $this->gateway->lock_order_payment( $order_3, $intent_id );
+		$current_lock = $order_3->get_meta( '_stripe_lock_payment' );
+
+		$this->assertFalse( $locked );
+		$this->assertEqualsWithDelta( (int) $current_lock, ( time() + 5 * MINUTE_IN_SECONDS ), 3 );
+
+		// test two instances of the same order, one locked and one not.
+		$order_4   = WC_Helper_Order::create_order();
+		$dup_order = wc_get_order( $order_4->get_id() );
+
+		$this->gateway->lock_order_payment( $order_4 );
+		$dup_locked = $this->gateway->lock_order_payment( $dup_order );
+		$this->assertTrue( $dup_locked ); // Confirms lock from $order_4 prevents payment on $dup_order.
+	}
+
+	/**
+	 * Tests zero amount refunds.
+	 */
+	public function test_process_refund_on_zero_amount() {
+		$order = WC_Helper_Order::create_order();
+		$order->set_transaction_id( 'ch_123' ); // Set the charge ID as transaction ID
+		$order->save();
+		$order_id = $order->get_id();
+
+		$result = $this->gateway->process_refund( $order_id, 0 );
+		$this->assertSame( true, $result );
+	}
+
+	/**
+	 * Tests that process_refund returns false for negative amounts.
+	 */
+	public function test_process_refund_fails_on_negative_amount() {
+		$order = WC_Helper_Order::create_order();
+		$order->set_transaction_id( 'ch_123' );
+		$order->save();
+		$order_id = $order->get_id();
+
+		$result = $this->gateway->process_refund( $order_id, -10 );
+		$this->assertSame( null, $result );
+	}
+
+	/**
+	 * Tests successful refund processing with a positive amount.
+	 */
+	public function test_process_refund_success() {
+		$order = WC_Helper_Order::create_order();
+		$order->set_currency( 'USD' );
+		$order->set_transaction_id( 'ch_123' );
+		$order->update_meta_data( '_stripe_charge_captured', 'yes' );
+		$order->save();
+		$order_id = $order->get_id();
+
+		// Mock the Stripe API refund response
+		$callback = function( $preempt, $request_args, $url ) {
+			if ( strpos( $url, 'refunds' ) !== false ) {
+				$response = [
+					'headers'  => [],
+					'body'     => wp_json_encode(
+						[
+							'id'       => 're_123',
+							'object'   => 'refund',
+							'amount'   => 1000, // $10.00
+							'currency' => 'usd',
+							'charge'   => 'ch_123',
+							'status'   => 'succeeded',
+						]
+					),
+					'response' => [
+						'code'    => 200,
+						'message' => 'OK',
+					],
+				];
+				return $response;
+			}
+			return $preempt;
+		};
+
+		add_filter( 'pre_http_request', $callback, 10, 3 );
+
+		$result = $this->gateway->process_refund( $order_id, 10.00, 'Customer requested' );
+		$this->assertTrue( $result );
+
+		remove_filter( 'pre_http_request', $callback );
+	}
+
 }

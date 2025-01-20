@@ -1,15 +1,18 @@
+/* global wc_stripe_settings_params */
 import { __ } from '@wordpress/i18n';
 import { useDispatch } from '@wordpress/data';
-import { React } from 'react';
+import { React, useEffect } from 'react';
 import { Card, Button, ExternalLink } from '@wordpress/components';
 import styled from '@emotion/styled';
 import interpolateComponents from 'interpolate-components';
 import CardBody from '../card-body';
 import bannerIllustration from './banner-illustration.svg';
 import bannerIllustrationReConnect from './banner-illustration-re-connect.svg';
+import { RECONNECT_BANNER, NEW_CHECKOUT_EXPERIENCE_BANNER } from './constants';
 import Pill from 'wcstripe/components/pill';
 import { recordEvent } from 'wcstripe/tracking';
 import { useEnabledPaymentMethodIds, useTestMode } from 'wcstripe/data';
+import { PAYMENT_METHOD_CARD } from 'wcstripe/stripe-utils/constants';
 
 const NewPill = styled( Pill )`
 	border-color: #674399;
@@ -57,6 +60,7 @@ const DismissButton = styled( Button )`
 
 const PromotionalBannerSection = ( {
 	setShowPromotionalBanner,
+	setPromotionalBannerType,
 	isUpeEnabled,
 	setIsUpeEnabled,
 	isConnectedViaOAuth,
@@ -69,7 +73,16 @@ const PromotionalBannerSection = ( {
 	const [ isTestModeEnabled ] = useTestMode();
 	const [ enabledPaymentMethodIds ] = useEnabledPaymentMethodIds();
 	const hasAPMEnabled =
-		enabledPaymentMethodIds.filter( ( e ) => e !== 'card' ).length > 0;
+		enabledPaymentMethodIds.filter( ( e ) => e !== PAYMENT_METHOD_CARD )
+			.length > 0;
+
+	useEffect( () => {
+		if ( isConnectedViaOAuth === false ) {
+			setPromotionalBannerType( RECONNECT_BANNER );
+		} else if ( ! isUpeEnabled ) {
+			setPromotionalBannerType( NEW_CHECKOUT_EXPERIENCE_BANNER );
+		}
+	}, [ isUpeEnabled, isConnectedViaOAuth, setPromotionalBannerType ] );
 
 	const handleButtonClick = () => {
 		const callback = async () => {
@@ -163,6 +176,20 @@ const PromotionalBannerSection = ( {
 		</CardBody>
 	);
 
+	let newCheckoutExperienceAPMsBannerDescription = '';
+	// eslint-disable-next-line camelcase
+	if ( wc_stripe_settings_params.are_apms_deprecated ) {
+		newCheckoutExperienceAPMsBannerDescription = __(
+			'Stripe ended support for non-card payment methods in the {{StripeLegacyLink}}legacy checkout on October 29, 2024{{/StripeLegacyLink}}. To continue accepting non-card payments, you must enable the new checkout experience or remove non-card payment methods from your checkout to avoid payment disruptions.',
+			'woocommerce-gateway-stripe'
+		);
+	} else {
+		newCheckoutExperienceAPMsBannerDescription = __(
+			'Stripe will end support for non-card payment methods in the {{StripeLegacyLink}}legacy checkout on October 29, 2024{{/StripeLegacyLink}}. To continue accepting non-card payments, you must enable the new checkout experience or remove non-card payment methods from your checkout to avoid payment disruptions.',
+			'woocommerce-gateway-stripe'
+		);
+	}
+
 	const NewCheckoutExperienceAPMsBanner = () => (
 		<CardBody data-testid="new-checkout-apms-banner">
 			<CardInner>
@@ -178,10 +205,7 @@ const PromotionalBannerSection = ( {
 					</h4>
 					<p>
 						{ interpolateComponents( {
-							mixedString: __(
-								'Stripe will end support for non-card payment methods in the {{StripeLegacyLink}}legacy checkout on October 29, 2024{{/StripeLegacyLink}}. To continue accepting non-card payments, you must enable the new checkout experience or remove non-card payment methods from your checkout to avoid payment disruptions.',
-								'woocommerce-gateway-stripe'
-							),
+							mixedString: newCheckoutExperienceAPMsBannerDescription,
 							components: {
 								StripeLegacyLink: (
 									<ExternalLink href="https://support.stripe.com/topics/shutdown-of-the-legacy-sources-api-for-non-card-payment-methods" />

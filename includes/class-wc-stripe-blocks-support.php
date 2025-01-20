@@ -178,7 +178,7 @@ final class WC_Stripe_Blocks_Support extends AbstractPaymentMethodType {
 	 * @return array
 	 */
 	public function get_payment_method_data() {
-		$js_params = WC_Stripe_Feature_Flags::is_stripe_ece_enabled()
+		$js_params = WC_Stripe_Feature_Flags::is_upe_checkout_enabled() && WC_Stripe_Feature_Flags::is_stripe_ece_enabled()
 			? $this->get_express_checkout_javascript_params()
 			: $this->get_payment_request_javascript_params();
 		// We need to call array_merge_recursive so the blocks 'button' setting doesn't overwrite
@@ -188,15 +188,17 @@ final class WC_Stripe_Blocks_Support extends AbstractPaymentMethodType {
 			$js_params,
 			// Blocks-specific options
 			[
-				'icons'                          => $this->get_icons(),
-				'supports'                       => $this->get_supported_features(),
-				'showSavedCards'                 => $this->get_show_saved_cards(),
-				'showSaveOption'                 => $this->get_show_save_option(),
-				'isAdmin'                        => is_admin(),
-				'shouldShowPaymentRequestButton' => $this->should_show_payment_request_button(),
-				'button'                         => [
+				'icons'                           => $this->get_icons(),
+				'supports'                        => $this->get_supported_features(),
+				'showSavedCards'                  => $this->get_show_saved_cards(),
+				'showSaveOption'                  => $this->get_show_save_option(),
+				'isAdmin'                         => is_admin(),
+				'shouldShowPaymentRequestButton'  => $this->should_show_payment_request_button(),
+				'shouldShowExpressCheckoutButton' => $this->should_show_express_checkout_button(),
+				'button'                          => [
 					'customLabel' => $this->payment_request_configuration->get_button_label(),
 				],
+				'style'                          => $this->get_style(),
 			]
 		);
 	}
@@ -250,15 +252,33 @@ final class WC_Stripe_Blocks_Support extends AbstractPaymentMethodType {
 	}
 
 	/**
+	 * Returns an array of style properties supported by the payment method.
+	 * This method is used only when rendering the payment method in the editor.
+	 *
+	 * @return array Array of style properties.
+	 */
+	private function get_style() {
+		return [
+			'height',
+			'borderRadius',
+		];
+	}
+
+	/**
 	 * Returns true if the ECE should be shown on the current page, false otherwise.
 	 *
 	 * @return boolean True if ECEs should be displayed, false otherwise.
 	 */
 	private function should_show_express_checkout_button() {
+		// Don't show if ECEs are turned off in settings.
+		if ( ! $this->express_checkout_configuration->express_checkout_helper->is_express_checkout_enabled() ) {
+			return false;
+		}
+
 		// Don't show if ECEs are supposed to be hidden on the cart page.
 		if (
 			has_block( 'woocommerce/cart' )
-			&& ! $this->express_checkout_configuration->express_checkout_helper->should_show_ece_on_cart_page()()
+			&& ! $this->express_checkout_configuration->express_checkout_helper->should_show_ece_on_cart_page()
 		) {
 			return false;
 		}

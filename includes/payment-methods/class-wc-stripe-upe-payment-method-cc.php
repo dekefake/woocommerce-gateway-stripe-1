@@ -36,29 +36,16 @@ class WC_Stripe_UPE_Payment_Method_CC extends WC_Stripe_UPE_Payment_Method {
 	/**
 	 * Returns payment method title
 	 *
-	 * @param array|bool $payment_details Optional payment details from charge object.
+	 * @param stdClass|array|bool $payment_details Optional payment details from charge object.
 	 *
 	 * @return string
 	 */
 	public function get_title( $payment_details = false ) {
-		if ( ! $payment_details ) {
-			return parent::get_title();
+		if ( $payment_details && isset( $payment_details->card->wallet->type ) ) {
+			return $this->get_card_wallet_type_title( $payment_details->card->wallet->type );
 		}
 
-		$details       = $payment_details[ $this->stripe_id ];
-		$funding_types = [
-			'credit'  => __( 'credit', 'woocommerce-gateway-stripe' ),
-			'debit'   => __( 'debit', 'woocommerce-gateway-stripe' ),
-			'prepaid' => __( 'prepaid', 'woocommerce-gateway-stripe' ),
-			'unknown' => __( 'unknown', 'woocommerce-gateway-stripe' ),
-		];
-
-		return sprintf(
-			// Translators: %1$s card brand, %2$s card funding (prepaid, credit, etc.).
-			__( '%1$s %2$s card', 'woocommerce-gateway-stripe' ),
-			ucfirst( $details->network ),
-			$funding_types[ $details->funding ]
-		);
+		return parent::get_title();
 	}
 
 	/**
@@ -78,10 +65,10 @@ class WC_Stripe_UPE_Payment_Method_CC extends WC_Stripe_UPE_Payment_Method {
 	 * @param string $user_id        WP_User ID
 	 * @param object $payment_method Stripe payment method object
 	 *
-	 * @return WC_Payment_Token_CC
+	 * @return WC_Stripe_Payment_Token_CC
 	 */
 	public function create_payment_token_for_user( $user_id, $payment_method ) {
-		$token = new WC_Payment_Token_CC();
+		$token = new WC_Stripe_Payment_Token_CC();
 		$token->set_expiry_month( $payment_method->card->exp_month );
 		$token->set_expiry_year( $payment_method->card->exp_year );
 		$token->set_card_type( strtolower( $payment_method->card->display_brand ?? $payment_method->card->networks->preferred ?? $payment_method->card->brand ) );
@@ -89,6 +76,7 @@ class WC_Stripe_UPE_Payment_Method_CC extends WC_Stripe_UPE_Payment_Method {
 		$token->set_gateway_id( WC_Stripe_UPE_Payment_Gateway::ID );
 		$token->set_token( $payment_method->id );
 		$token->set_user_id( $user_id );
+		$token->set_fingerprint( $payment_method->card->fingerprint );
 		$token->save();
 		return $token;
 	}
@@ -123,8 +111,37 @@ class WC_Stripe_UPE_Payment_Method_CC extends WC_Stripe_UPE_Payment_Method {
 			esc_html__( '%1$sTest mode:%2$s use the test VISA card 4242424242424242 with any expiry date and CVC. Other payment methods may redirect to a Stripe test page to authorize payment. More test card numbers are listed %3$shere%4$s.', 'woocommerce-gateway-stripe' ),
 			'<strong>',
 			'</strong>',
-			'<a href="https://stripe.com/docs/testing" target="_blank">',
+			'<a href="https://docs.stripe.com/testing" target="_blank">',
 			'</a>'
 		);
+	}
+
+	/**
+	 * Returns the title for the card wallet type.
+	 * This is used to display the title for Apple Pay and Google Pay.
+	 *
+	 * @param $express_payment_type The type of express payment method.
+	 *
+	 * @return string The title for the card wallet type.
+	 */
+	private function get_card_wallet_type_title( $express_payment_type ) {
+		$express_payment_titles = [
+			'apple_pay'  => 'Apple Pay',
+			'google_pay' => 'Google Pay',
+		];
+
+		$payment_method_title = $express_payment_titles[ $express_payment_type ] ?? false;
+
+		if ( ! $payment_method_title ) {
+			return parent::get_title();
+		}
+
+		$suffix = apply_filters( 'wc_stripe_payment_request_payment_method_title_suffix', 'Stripe' );
+
+		if ( ! empty( $suffix ) ) {
+			$suffix = " ($suffix)";
+		}
+
+		return $payment_method_title . $suffix;
 	}
 }

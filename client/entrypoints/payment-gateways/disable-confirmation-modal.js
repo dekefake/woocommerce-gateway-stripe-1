@@ -9,6 +9,7 @@ import PaymentMethodIcon from '../../settings/payment-method-icon';
 import ConfirmationModal from 'wcstripe/components/confirmation-modal';
 import './style.scss';
 import AlertTitle from 'wcstripe/components/confirmation-modal/alert-title';
+import { PAYMENT_METHOD_LINK } from 'wcstripe/stripe-utils/constants';
 
 const DisableConfirmationModal = ( { onClose, onConfirm } ) => {
 	const [ enabledPaymentMethodIds ] = useEnabledPaymentMethodIds();
@@ -16,8 +17,12 @@ const DisableConfirmationModal = ( { onClose, onConfirm } ) => {
 		paymentRequestEnabledSettings,
 	] = usePaymentRequestEnabledSettings();
 
+	const enabledMethodIds = enabledPaymentMethodIds.filter(
+		( methodId ) => methodId !== PAYMENT_METHOD_LINK
+	);
+
 	const mainDialogText =
-		enabledPaymentMethodIds.length === 0 && paymentRequestEnabledSettings
+		enabledMethodIds.length === 0 && paymentRequestEnabledSettings
 			? __(
 					'Are you sure you want to disable Stripe? Without it, your customers will no longer be able to pay using the express checkouts.',
 					'woocommerce-gateway-stripe'
@@ -51,7 +56,7 @@ const DisableConfirmationModal = ( { onClose, onConfirm } ) => {
 			}
 		>
 			<p>{ mainDialogText }</p>
-			{ enabledPaymentMethodIds.length > 0 && (
+			{ enabledMethodIds.length > 0 && (
 				<>
 					<p>
 						{ __(
@@ -60,7 +65,7 @@ const DisableConfirmationModal = ( { onClose, onConfirm } ) => {
 						) }
 					</p>
 					<ul className="disable-confirmation-modal__payment-methods-list">
-						{ enabledPaymentMethodIds.map( ( methodId ) => {
+						{ enabledMethodIds.map( ( methodId ) => {
 							return (
 								<li key={ methodId }>
 									<PaymentMethodIcon

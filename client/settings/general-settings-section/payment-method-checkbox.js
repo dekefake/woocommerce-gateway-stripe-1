@@ -11,6 +11,7 @@ import {
 	useIsStripeEnabled,
 } from 'wcstripe/data';
 import Tooltip from 'wcstripe/components/tooltip';
+import { PAYMENT_METHOD_CARD } from 'wcstripe/stripe-utils/constants';
 
 const StyledCheckbox = styled( CheckboxControl )`
 	.components-base-control__field {
@@ -27,7 +28,12 @@ const IconWrapper = styled.span`
 	flex-shrink: 0;
 `;
 
-const PaymentMethodCheckbox = ( { id, label, isAllowingManualCapture } ) => {
+const PaymentMethodCheckbox = ( {
+	id,
+	label,
+	isAllowingManualCapture,
+	disabled,
+} ) => {
 	const [ isManualCaptureEnabled ] = useManualCapture();
 	const [ isConfirmationModalOpen, setIsConfirmationModalOpen ] = useState(
 		false
@@ -40,6 +46,9 @@ const PaymentMethodCheckbox = ( { id, label, isAllowingManualCapture } ) => {
 	const { isUpeEnabled } = useContext( UpeToggleContext );
 
 	const handleCheckboxChange = ( hasBeenChecked ) => {
+		if ( disabled ) {
+			return;
+		}
 		if ( ! hasBeenChecked ) {
 			setIsConfirmationModalOpen( true );
 			return;
@@ -47,7 +56,7 @@ const PaymentMethodCheckbox = ( { id, label, isAllowingManualCapture } ) => {
 
 		// In legacy mode (UPE disabled), Stripe refers to the card payment method.
 		// So if the card payment method is enabled, Stripe should be enabled.
-		if ( id === 'card' && ! isUpeEnabled ) {
+		if ( id === PAYMENT_METHOD_CARD && ! isUpeEnabled ) {
 			setIsStripeEnabled( true );
 		}
 
@@ -62,7 +71,7 @@ const PaymentMethodCheckbox = ( { id, label, isAllowingManualCapture } ) => {
 
 		// In legacy mode (UPE disabled), Stripe refers to the card payment method.
 		// So if the card payment method is disabled, Stripe should be disabled.
-		if ( id === 'card' && ! isUpeEnabled ) {
+		if ( id === PAYMENT_METHOD_CARD && ! isUpeEnabled ) {
 			setIsStripeEnabled( false );
 		}
 	};
@@ -98,7 +107,10 @@ const PaymentMethodCheckbox = ( { id, label, isAllowingManualCapture } ) => {
 				<StyledCheckbox
 					label={ <VisuallyHidden>{ label }</VisuallyHidden> }
 					onChange={ handleCheckboxChange }
-					checked={ enabledPaymentMethods.includes( id ) }
+					checked={
+						disabled ? false : enabledPaymentMethods.includes( id )
+					}
+					disabled={ disabled }
 				/>
 			) }
 			{ isConfirmationModalOpen && (
